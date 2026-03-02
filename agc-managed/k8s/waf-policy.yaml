@@ -1,0 +1,17 @@
+---
+# WebApplicationFirewallPolicy CR — targets the shared ApplicationLoadBalancer
+# in test-app so both Gateway and Ingress routes on that ALB are inspected.
+# __WAF_POLICY_ID__ is replaced at deploy time by deploy.sh.
+apiVersion: alb.networking.azure.io/v1
+kind: WebApplicationFirewallPolicy
+metadata:
+  name: echo-waf-policy
+  namespace: test-app
+spec:
+  targetRef:
+    group: alb.networking.azure.io
+    kind: ApplicationLoadBalancer
+    name: alb
+    namespace: test-app
+  webApplicationFirewall:
+    id: __WAF_POLICY_ID__

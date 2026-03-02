@@ -1,0 +1,18 @@
+---
+# WebApplicationFirewallPolicy CR — targets the HTTPRoute so all traffic
+# routed through it is inspected by Azure WAF.
+# See: https://learn.microsoft.com/azure/application-gateway/for-containers/how-to-waf-gateway-api?tabs=byo
+# __WAF_POLICY_ID__ is replaced at deploy time by deploy.sh.
+apiVersion: alb.networking.azure.io/v1
+kind: WebApplicationFirewallPolicy
+metadata:
+  name: waf-gateway
+  namespace: test-app-byo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: echo-route
+    namespace: test-app-byo
+  webApplicationFirewall:
+    id: __WAF_POLICY_ID__
