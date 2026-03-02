@@ -37,7 +37,7 @@ Both scenarios also include:
 │  │                          │     │  Traffic Controller, Frontend│              │
 │  │  ALB controller creates  │     │  & Association pre-created   │              │
 │  │  AGC resources from      │     │  in Azure via Terraform      │              │
-│  │  ApplicationLoadBalancer │     │  local-exec (az network alb) │              │
+│  │  ApplicationLoadBalancer │     │  azapi_resource (AzAPI)       │              │
 │  │  custom resource         │     │                              │              │
 │  │                          │     │  K8s manifests reference     │              │
 │  │  ┌────────────────────┐  │     │  resources by ARM ID         │              │
@@ -67,9 +67,9 @@ For each scenario, Terraform provisions:
 - RBAC for the ALB controller managed identity
 - Azure WAF policy (Default Rule Set 2.1 + custom block rules)
 
-In BYO mode, Terraform also creates:
+In BYO mode, Terraform also creates (via `azapi_resource`):
 
-- AGC traffic controller (`az network alb create`)
+- AGC traffic controller
 - AGC frontend
 - AGC association to the delegated subnet
 

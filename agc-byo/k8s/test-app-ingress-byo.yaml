@@ -55,6 +55,7 @@ metadata:
   namespace: test-app-ingress-byo
   annotations:
     alb.networking.azure.io/alb-id: __ALB_ID__
+    alb.networking.azure.io/alb-frontend: __INGRESS_FRONTEND_NAME__
 spec:
   ingressClassName: azure-alb-external
   rules:

@@ -2,7 +2,7 @@
 
 This scenario demonstrates **Bring Your Own (BYO)** Application Gateway for Containers (AGC).
 
-In BYO mode the AGC traffic controller, frontend, and association are **pre-created in Azure** (via `az network alb` CLI commands run from Terraform `local-exec`). Kubernetes manifests then reference those existing resources by full ARM resource ID instead of letting the ALB controller create them implicitly.
+In BYO mode the AGC traffic controller, frontend, and association are **pre-created in Azure** using `azapi_resource` (the AzAPI Terraform provider). Kubernetes manifests then reference those existing resources by full ARM resource ID instead of letting the ALB controller create them implicitly.
 
 ## Architecture
 
@@ -25,14 +25,15 @@ In BYO mode the AGC traffic controller, frontend, and association are **pre-crea
 │  │  • Workload Identity │   │  ├─ Frontend (frontend-XXXX)    │      │
 │  │  • ALB controller    │   │  └─ Association ──► AGC subnet  │      │
 │  │    add-on enabled    │   │                                 │      │
-│  │  • Gateway API       │   │  Created by Terraform           │      │
-│  │    (Standard)        │   │  local-exec (az network alb)    │      │
+│  │  • Gateway API       │   │  Created by Terraform         │      │
+│  │    (Standard)        │   │  azapi_resource               │      │
 │  └──────────────────────┘   └─────────────────────────────────┘      │
 │                                                                      │
 │  K8s manifests reference BYO resources:                              │
 │   • Gateway annotation: alb.networking.azure.io/alb-id: <ALB ID>    │
 │   • Gateway address:    alb.networking.azure.io/alb-frontend         │
 │   • Ingress annotation: alb.networking.azure.io/alb-id: <ALB ID>    │
+│   • Ingress annotation: alb.networking.azure.io/alb-frontend         │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,9 +45,9 @@ In BYO mode the AGC traffic controller, frontend, and association are **pre-crea
 | **ALB controller add-on** | Enabled via `azapi_update_resource` (preview API `2025-09-02-preview`) |
 | **Gateway API** | Installed via `ingressProfile.gatewayAPI.installation = "Standard"` |
 | **AGC subnet** | `/24`, delegated to `Microsoft.ServiceNetworking/trafficControllers` |
-| **BYO traffic controller** | Created by `az network alb create` in a Terraform `local-exec` provisioner |
-| **BYO frontend** | Created by `az network alb frontend create` |
-| **BYO association** | Created by `az network alb association create`, linked to the AGC subnet |
+| **BYO traffic controller** | Created by `azapi_resource` (`Microsoft.ServiceNetworking/trafficControllers`) |
+| **BYO frontend** | Created by `azapi_resource` (child of traffic controller) |
+| **BYO association** | Created by `azapi_resource` (child of traffic controller), linked to the AGC subnet |
 | **WAF policy** | Azure WAF with Default Rule Set 2.1 + two custom rules |
 | **Demo 1 — Gateway API** | Namespace `test-app-byo` — `Gateway` + `HTTPRoute` pinned to BYO ALB/frontend |
 | **Demo 2 — Ingress API** | Namespace `test-app-ingress-byo` — `Ingress` referencing the BYO ALB by ID |
@@ -88,6 +89,7 @@ agc-byo/
 | `vnet_address_space` | `["10.0.0.0/8"]` | VNet address space |
 | `aks_subnet_address_prefix` | `10.240.0.0/16` | AKS node subnet |
 | `agc_subnet_address_prefix` | `10.241.0.0/24` | AGC delegated subnet (must be `/24` or smaller for CNI Overlay) |
+| `allowed_source_ranges` | `[]` (open) | CIDR ranges allowed to reach the AGC frontend; all other IPs are blocked by a WAF rule. Leave empty to allow all traffic. |
 
 A sample file is provided:
 
@@ -108,12 +110,12 @@ terraform init && terraform apply
    - `Network Contributor` on the AGC subnet (attach association)
    - `Network Contributor` on the WAF policy (attach WAF to security policy)
 6. **WAF policy** — `azurerm_web_application_firewall_policy` with DRS 2.1 + custom rules
-7. **BYO AGC resources** (via `terraform_data` + `local-exec`):
-   - Traffic controller: `az network alb create`
-   - Frontend: `az network alb frontend create`
-   - Association: `az network alb association create --subnet <AGC subnet>`
+7. **BYO AGC resources** (via `azapi_resource`):
+   - Traffic controller: `Microsoft.ServiceNetworking/trafficControllers`
+   - Frontend: `Microsoft.ServiceNetworking/trafficControllers/frontends`
+   - Association: `Microsoft.ServiceNetworking/trafficControllers/associations` (linked to AGC subnet)
 
-> **Why `local-exec`?** The `Microsoft.ServiceNetworking/trafficControllers` resource type is not yet natively modeled in the `azurerm` provider; the `az network alb` CLI is the supported way to create BYO AGC resources.
+> **Why AzAPI?** The `Microsoft.ServiceNetworking/trafficControllers` resource type is not yet natively modeled in the `azurerm` provider. The `azapi` provider gives full lifecycle management (create, read, update, delete) directly from the ARM API.
 
 ## Kubernetes manifests in detail
 
@@ -145,7 +147,9 @@ spec:
 | `Namespace` | `test-app-ingress-byo` | — | Separate namespace for Ingress demo |
 | `Deployment` | `echo-server` | `test-app-ingress-byo` | Identical echo-server (2 replicas) |
 | `Service` | `echo-server` | `test-app-ingress-byo` | ClusterIP service |
-| `Ingress` | `echo-ingress` | `test-app-ingress-byo` | `ingressClassName: azure-alb-external`, annotated with `alb-id: __ALB_ID__` to reference the BYO traffic controller |
+| `Ingress` | `echo-ingress` | `test-app-ingress-byo` | `ingressClassName: azure-alb-external`, annotated with `alb-id: __ALB_ID__` and `alb-frontend: __INGRESS_FRONTEND_NAME__` to reference the BYO traffic controller and a dedicated frontend |
+
+> **Note:** AGC WAF is only supported with **Gateway API** (`HTTPRoute`/`Gateway`). Kubernetes Ingress resources cannot be targeted by a `WebApplicationFirewallPolicy` CR. The Ingress demo shows basic routing without WAF.
 
 ### WAF policy CR (`k8s/waf-policy.yaml`)
 
@@ -162,17 +166,20 @@ spec:
     id: __WAF_POLICY_ID__       # Azure WAF resource ID, replaced by deploy.sh
 ```
 
-> **Managed vs BYO WAF targeting**: In managed mode the WAF CR targets the `ApplicationLoadBalancer` (all routes). In BYO mode it targets the `HTTPRoute` directly, giving more granular control.
+> **Managed vs BYO WAF targeting**: In managed mode the WAF CR targets the `ApplicationLoadBalancer` (all routes). In BYO mode it targets the `HTTPRoute` directly. Note that AGC WAF **only supports Gateway API** resources — Kubernetes Ingress resources cannot be targeted.
 
 ## WAF rules explained
 
 | Rule | Type | What it does | How to trigger |
 |------|------|-------------|----------------|
+| **AllowOnlyKnownIPs** | Custom (priority 1) | Blocks any source IP **not** in `allowed_source_ranges`. Only active when the variable is set. | Request from an IP outside the allowlist |
 | **DRS 2.1** | Managed | OWASP-style rules including SQLi, XSS, LFI, etc. | `curl "http://<addr>/?id=1'+OR+'1'%3D'1"` |
-| **BlockBadBots** | Custom (priority 1) | Blocks if `User-Agent` header contains `BadBot` | `curl -H "User-Agent: BadBot" http://<addr>/` |
-| **BlockUriToken** | Custom (priority 2) | Blocks if request URI contains `blockme` | `curl "http://<addr>/?demo=blockme"` |
+| **BlockBadBots** | Custom (priority 2) | Blocks if `User-Agent` header contains `BadBot` | `curl -H "User-Agent: BadBot" http://<addr>/` |
+| **BlockUriToken** | Custom (priority 3) | Blocks if request URI contains `blockme` | `curl "http://<addr>/?demo=blockme"` |
 
 All rules use **Prevention** mode — matching requests receive HTTP 403.
+
+> **Why IP restriction?** AGC frontends are [always public](https://learn.microsoft.com/azure/application-gateway/for-containers/application-gateway-for-containers-components) (private frontends are not supported today). The `AllowOnlyKnownIPs` WAF rule is the recommended approach to restrict access to known networks or corporate egress IPs.
 
 ## Deploy (step by step)
 
@@ -247,11 +254,11 @@ This tunnels the command through Azure and does not require a local kubeconfig o
 
 | Aspect | Managed (agc-managed/) | BYO (agc-byo/) |
 |--------|-------------------|------------|
-| AGC lifecycle | Controller creates/deletes traffic controller from `ApplicationLoadBalancer` CR | You pre-create with `az network alb`; controller only reconciles K8s-side objects |
+| AGC lifecycle | Controller creates/deletes traffic controller from `ApplicationLoadBalancer` CR | You pre-create with `azapi_resource`; controller only reconciles K8s-side objects |
 | K8s reference | `alb-name` + `alb-namespace` annotations | `alb-id` annotation with full ARM resource ID |
 | Frontend binding | Implicit (controller assigns) | Explicit via `addresses[].type/value` on the Gateway |
 | WAF CR target | `ApplicationLoadBalancer` (all routes) | `HTTPRoute` (per-route granularity) |
-| RBAC | `Contributor` on node RG + `Network Contributor` on subnet/WAF | `Configuration Manager` on RG + `Network Contributor` on subnet/WAF |
+| RBAC | `Configuration Manager` on node RG + `Network Contributor` on subnet/WAF | `Configuration Manager` on RG + `Network Contributor` on subnet/WAF |
 | AGC security policy | Controller creates from CR | Manually created via `az network alb security-policy waf create` |
 
 ## Overlay networking note
@@ -262,7 +269,7 @@ For AKS with Azure CNI Overlay the AGC association subnet must be `/24` or a mor
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `az network alb create` fails | `Microsoft.ServiceNetworking` provider not registered | `az provider register -n Microsoft.ServiceNetworking` |
+| `terraform apply` fails on traffic controller | `Microsoft.ServiceNetworking` provider not registered | `az provider register -n Microsoft.ServiceNetworking` |
 | Gateway never becomes `Programmed` | ALB identity missing `Configuration Manager` role on RG | Verify RBAC in portal or re-run `terraform apply` |
 | WAF returns 200 instead of 403 | Security policy or WAF CR not yet propagated (can take 60–90 s) | Wait and retry; check `az network alb security-policy show` |
 | `az aks command invoke` times out | Private DNS resolution delay for new cluster | Retry after a minute; ensure Azure CLI is up to date |

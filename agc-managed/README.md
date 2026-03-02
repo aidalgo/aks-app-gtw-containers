@@ -85,6 +85,7 @@ agc-managed/
 | `vnet_address_space` | `["10.0.0.0/8"]` | VNet address space |
 | `subnet_address_prefix` | `10.240.0.0/16` | AKS node subnet |
 | `agc_subnet_address_prefix` | `10.241.0.0/24` | AGC delegated subnet (must be `/24` or smaller for CNI Overlay) |
+| `allowed_source_ranges` | `[]` (open) | CIDR ranges allowed to reach the AGC frontend; all other IPs are blocked by a WAF rule. Leave empty to allow all traffic. |
 
 ## Terraform resources created
 
@@ -93,8 +94,8 @@ agc-managed/
 3. **AKS cluster** — private, CNI Overlay, Workload Identity, system + user node pools
 4. **ALB controller add-on + Gateway API** — enabled via `azapi_update_resource` on the AKS resource
 5. **RBAC role assignments** for the ALB controller managed identity:
+   - `AppGw for Containers Configuration Manager` on the node resource group (create/manage traffic controller)
    - `Network Contributor` on the AGC subnet (attach frontend)
-   - `Contributor` on the node resource group (create/manage traffic controller)
    - `Network Contributor` on the WAF policy (attach WAF to AGC security policy)
 6. **WAF policy** — `azurerm_web_application_firewall_policy` with DRS 2.1 + custom rules
 
@@ -139,17 +140,22 @@ spec:
     id: __WAF_POLICY_ID__          # Azure resource ID, replaced by deploy.sh
 ```
 
-Because the CR targets the `ApplicationLoadBalancer`, WAF inspection applies to **all** frontends behind that ALB — both the Gateway and Ingress demos.
+Because the CR targets the `ApplicationLoadBalancer`, WAF inspection applies to **all** Gateway API routes behind that ALB.
+
+> **Note:** AGC WAF only supports **Gateway API** resources. Although the managed scenario's Ingress demo also goes through the same ALB, WAF inspection is applied only to Gateway API traffic (`HTTPRoute`). The Ingress demo shows basic routing without WAF.
 
 ## WAF rules explained
 
 | Rule | Type | What it does | How to trigger |
 |------|------|-------------|----------------|
+| **AllowOnlyKnownIPs** | Custom (priority 1) | Blocks any source IP **not** in `allowed_source_ranges`. Only active when the variable is set. | Request from an IP outside the allowlist |
 | **DRS 2.1** | Managed | OWASP-style rules including SQLi, XSS, LFI, etc. | `curl "http://<addr>/?id=1'+OR+'1'%3D'1"` |
-| **BlockBadBots** | Custom (priority 1) | Blocks if `User-Agent` header contains `BadBot` | `curl -H "User-Agent: BadBot" http://<addr>/` |
-| **BlockUriToken** | Custom (priority 2) | Blocks if request URI contains `blockme` | `curl "http://<addr>/?demo=blockme"` |
+| **BlockBadBots** | Custom (priority 2) | Blocks if `User-Agent` header contains `BadBot` | `curl -H "User-Agent: BadBot" http://<addr>/` |
+| **BlockUriToken** | Custom (priority 3) | Blocks if request URI contains `blockme` | `curl "http://<addr>/?demo=blockme"` |
 
 All rules use **Prevention** mode — matching requests receive HTTP 403.
+
+> **Why IP restriction?** AGC frontends are [always public](https://learn.microsoft.com/azure/application-gateway/for-containers/application-gateway-for-containers-components) (private frontends are not supported today). The `AllowOnlyKnownIPs` WAF rule is the recommended approach to restrict access to known networks or corporate egress IPs.
 
 ## Deploy (step by step)
 

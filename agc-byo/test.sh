@@ -5,10 +5,12 @@ set -euo pipefail
 RG=$(terraform -chdir=terraform output -raw resource_group)
 AKS=$(terraform -chdir=terraform output -raw aks_name)
 
+echo "==> Fetching Gateway address..."
 GW_ADDR=$(az aks command invoke -g "$RG" -n "$AKS" \
 	--command "kubectl get gateway gateway -n test-app-byo -o jsonpath='{.status.addresses[0].value}'" \
 	--query logs -o tsv)
 
+echo "==> Fetching Ingress address..."
 INGRESS_ADDR=""
 for i in $(seq 1 24); do
 	INGRESS_ADDR=$(az aks command invoke -g "$RG" -n "$AKS" \
@@ -17,31 +19,35 @@ for i in $(seq 1 24); do
 	if [[ -n "$INGRESS_ADDR" && "$INGRESS_ADDR" != "None" ]]; then
 		break
 	fi
+	echo "    Waiting... (${i}/24)"
 	sleep 5
 done
 
+echo ""
 echo "Gateway API : $GW_ADDR"
 echo "Ingress     : $INGRESS_ADDR"
+echo ""
 
-# --- DEMO 1: Gateway API ---
+test_curl() {
+  local label="$1"; shift
+  printf "%-50s " "$label"
+  local status
+  status=$(curl -m 10 -s -o /dev/null -w "%{http_code}" "$@" 2>/dev/null) || status="TIMEOUT"
+  echo "$status"
+}
 
-# Normal request
-curl -si http://$GW_ADDR/ | head -1
+# --- DEMO 1: Gateway API (with WAF) ---
+echo "--- Gateway API (WAF enabled) ---"
+test_curl "Normal request"                          "http://$GW_ADDR/"
+test_curl "WAF: BlockBadBots (User-Agent)"          -H "User-Agent: BadBot" "http://$GW_ADDR/"
+test_curl "WAF: DRS 2.1 SQL injection"              "http://$GW_ADDR/?id=1'+OR+'1'%3D'1"
+test_curl "WAF: BlockUriToken (URI contains blockme)" "http://$GW_ADDR/?demo=blockme"
 
-# WAF custom rule — User-Agent block
-curl -si -H "User-Agent: BadBot" http://$GW_ADDR/ | head -1
+echo ""
 
-# WAF managed rule — SQL injection
-curl -si "http://$GW_ADDR/?id=1'+OR+'1'%3D'1" | head -1
+# --- DEMO 2: Ingress API (no WAF — AGC WAF only supports Gateway API) ---
+echo "--- Ingress API (no WAF) ---"
+test_curl "Normal request"                          "http://$INGRESS_ADDR/"
 
-
-# --- DEMO 2: Ingress API ---
-
-# Normal request
-curl -si http://$INGRESS_ADDR/ | head -1
-
-# WAF custom rule — User-Agent block (WAF targets the Ingress resource directly)
-curl -si -H "User-Agent: BadBot" http://$INGRESS_ADDR/ | head -1
-
-# WAF managed rule — SQL injection
-curl -si "http://$INGRESS_ADDR/?id=1'+OR+'1'%3D'1" | head -1
+echo ""
+echo "Expected: Gateway 200 normal / 403 WAF rules. Ingress 200 (WAF not supported)."

@@ -1,6 +1,8 @@
 ---
 # WebApplicationFirewallPolicy CR — targets the HTTPRoute so all traffic
 # routed through it is inspected by Azure WAF.
+# NOTE: AGC WAF only supports Gateway API (HTTPRoute/Gateway) as targetRef.
+#       Kubernetes Ingress resources are NOT supported.
 # See: https://learn.microsoft.com/azure/application-gateway/for-containers/how-to-waf-gateway-api?tabs=byo
 # __WAF_POLICY_ID__ is replaced at deploy time by deploy.sh.
 apiVersion: alb.networking.azure.io/v1

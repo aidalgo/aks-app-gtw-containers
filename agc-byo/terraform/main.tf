@@ -13,14 +13,12 @@ locals {
   aks_subnet_name = "snet-aks-${var.name_prefix}-${random_string.suffix.result}"
   agc_subnet_name = "snet-agc-${var.name_prefix}-${random_string.suffix.result}"
   alb_name        = "alb-${var.name_prefix}-${random_string.suffix.result}"
-  frontend_name   = "frontend-${random_string.suffix.result}"
-  association_name = "assoc-${random_string.suffix.result}"
+  frontend_name         = "frontend-${random_string.suffix.result}"
+  ingress_frontend_name = "frontend-ingress-${random_string.suffix.result}"
+  association_name       = "assoc-${random_string.suffix.result}"
   waf_policy_name = "waf-${var.name_prefix}-${random_string.suffix.result}"
   config_mgr_role = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/fbc52c3f-28ad-4303-a892-8a056630b8f1"
   network_contrib = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/4d97b98b-1d4f-4787-a291-c67834d212e7"
-  alb_id          = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.rg.name}/providers/Microsoft.ServiceNetworking/trafficControllers/${local.alb_name}"
-  frontend_id     = "${local.alb_id}/frontends/${local.frontend_name}"
-  association_id  = "${local.alb_id}/associations/${local.association_name}"
 }
 
 # ── Resource Group ────────────────────────────────────────────────────
@@ -179,7 +177,7 @@ resource "azurerm_web_application_firewall_policy" "waf" {
 
   custom_rules {
     name      = "BlockBadBots"
-    priority  = 1
+    priority  = 2
     rule_type = "MatchRule"
     action    = "Block"
 
@@ -196,7 +194,7 @@ resource "azurerm_web_application_firewall_policy" "waf" {
 
   custom_rules {
     name      = "BlockUriToken"
-    priority  = 2
+    priority  = 3
     rule_type = "MatchRule"
     action    = "Block"
 
@@ -209,43 +207,86 @@ resource "azurerm_web_application_firewall_policy" "waf" {
       match_values       = ["blockme"]
     }
   }
+
+  # IP allowlist: when allowed_source_ranges is set, block any source IP
+  # NOT in the list. AGC frontends are always public, so this is the
+  # recommended way to restrict access to known networks.
+  # See: https://learn.microsoft.com/azure/application-gateway/for-containers/application-gateway-for-containers-components
+  dynamic "custom_rules" {
+    for_each = length(var.allowed_source_ranges) > 0 ? [1] : []
+    content {
+      name      = "AllowOnlyKnownIPs"
+      priority  = 1
+      rule_type = "MatchRule"
+      action    = "Block"
+
+      match_conditions {
+        match_variables {
+          variable_name = "RemoteAddr"
+        }
+        operator           = "IPMatch"
+        negation_condition = true
+        match_values       = var.allowed_source_ranges
+      }
+    }
+  }
 }
 
 # ── BYO: Create AGC traffic controller, frontend, and association ─────
-resource "terraform_data" "create_byo_agc" {
-  input = {
-    resource_group = azurerm_resource_group.rg.name
-    alb_name       = local.alb_name
-    frontend_name  = local.frontend_name
-    association    = local.association_name
-    subnet_id      = azurerm_subnet.agc.id
-  }
+# Using azapi_resource instead of local-exec so that Terraform manages the
+# full lifecycle (create, read, update, delete) — no more orphaned resources.
+resource "azapi_resource" "traffic_controller" {
+  type      = "Microsoft.ServiceNetworking/trafficControllers@2023-11-01"
+  name      = local.alb_name
+  parent_id = azurerm_resource_group.rg.id
+  location  = azurerm_resource_group.rg.location
 
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      if ! az extension show --name alb >/dev/null 2>&1; then
-        az extension add --name alb >/dev/null
-      fi
-
-      if ! az network alb show -g "${self.input.resource_group}" -n "${self.input.alb_name}" >/dev/null 2>&1; then
-        az network alb create -g "${self.input.resource_group}" -n "${self.input.alb_name}" >/dev/null
-      fi
-
-      if ! az network alb frontend show -g "${self.input.resource_group}" --alb-name "${self.input.alb_name}" -n "${self.input.frontend_name}" >/dev/null 2>&1; then
-        az network alb frontend create -g "${self.input.resource_group}" --alb-name "${self.input.alb_name}" -n "${self.input.frontend_name}" >/dev/null
-      fi
-
-      if ! az network alb association show -g "${self.input.resource_group}" --alb-name "${self.input.alb_name}" -n "${self.input.association}" >/dev/null 2>&1; then
-        az network alb association create -g "${self.input.resource_group}" --alb-name "${self.input.alb_name}" -n "${self.input.association}" --subnet "${self.input.subnet_id}" >/dev/null
-      fi
-    EOT
+  body = {
+    properties = {}
   }
 
   depends_on = [
     azurerm_role_assignment.alb_config_manager_on_rg,
     azurerm_role_assignment.alb_network_contributor_on_agc_subnet,
-    azurerm_role_assignment.alb_network_contributor_on_waf,
   ]
+}
+
+resource "azapi_resource" "frontend" {
+  type      = "Microsoft.ServiceNetworking/trafficControllers/frontends@2023-11-01"
+  name      = local.frontend_name
+  parent_id = azapi_resource.traffic_controller.id
+  location  = azurerm_resource_group.rg.location
+
+  body = {
+    properties = {}
+  }
+}
+
+# A second frontend for the Ingress demo. AGC requires each frontend to be
+# assigned to at most one Gateway or Ingress resource.
+resource "azapi_resource" "ingress_frontend" {
+  type      = "Microsoft.ServiceNetworking/trafficControllers/frontends@2023-11-01"
+  name      = local.ingress_frontend_name
+  parent_id = azapi_resource.traffic_controller.id
+  location  = azurerm_resource_group.rg.location
+
+  body = {
+    properties = {}
+  }
+}
+
+resource "azapi_resource" "association" {
+  type      = "Microsoft.ServiceNetworking/trafficControllers/associations@2023-11-01"
+  name      = local.association_name
+  parent_id = azapi_resource.traffic_controller.id
+  location  = azurerm_resource_group.rg.location
+
+  body = {
+    properties = {
+      associationType = "subnets"
+      subnet = {
+        id = azurerm_subnet.agc.id
+      }
+    }
+  }
 }

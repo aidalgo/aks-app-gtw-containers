@@ -4,6 +4,8 @@ resource "random_string" "suffix" {
   special = false
 }
 
+data "azurerm_client_config" "current" {}
+
 locals {
   rg_name         = "rg-${var.name_prefix}-${random_string.suffix.result}"
   aks_name        = "aks-${var.name_prefix}-${random_string.suffix.result}"
@@ -11,6 +13,8 @@ locals {
   subnet_name     = "snet-aks-${var.name_prefix}-${random_string.suffix.result}"
   agc_subnet_name = "snet-agc-${var.name_prefix}-${random_string.suffix.result}"
   waf_policy_name = "waf-${var.name_prefix}-${random_string.suffix.result}"
+  config_mgr_role = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/fbc52c3f-28ad-4303-a892-8a056630b8f1"
+  network_contrib = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/4d97b98b-1d4f-4787-a291-c67834d212e7"
 }
 
 resource "azurerm_resource_group" "rg" {
@@ -143,30 +147,30 @@ data "azurerm_resource_group" "node_rg" {
   depends_on = [azurerm_kubernetes_cluster.aks]
 }
 
-# 1. Network Contributor on the delegated AGC subnet
-#    Allows the ALB controller to attach the frontend to the subnet.
-resource "azurerm_role_assignment" "alb_subnet_network_contributor" {
-  scope                = azurerm_subnet.agc.id
-  role_definition_name = "Network Contributor"
-  principal_id         = data.azurerm_user_assigned_identity.alb_controller.principal_id
+# 1. AppGw for Containers Configuration Manager on the node resource group
+#    Least-privilege role that lets the ALB controller create/manage AGC
+#    (trafficController) resources inside the MC_... resource group.
+resource "azurerm_role_assignment" "alb_config_manager_on_node_rg" {
+  scope              = data.azurerm_resource_group.node_rg.id
+  role_definition_id = local.config_mgr_role
+  principal_id       = data.azurerm_user_assigned_identity.alb_controller.principal_id
 }
 
-# 2. Contributor on the node resource group
-#    Allows the ALB controller to create/manage AGC (trafficController) resources
-#    inside the MC_... resource group.
-resource "azurerm_role_assignment" "alb_node_rg_contributor" {
-  scope                = data.azurerm_resource_group.node_rg.id
-  role_definition_name = "Contributor"
-  principal_id         = data.azurerm_user_assigned_identity.alb_controller.principal_id
+# 2. Network Contributor on the delegated AGC subnet
+#    Allows the ALB controller to attach the frontend to the subnet.
+resource "azurerm_role_assignment" "alb_network_contributor_on_agc_subnet" {
+  scope              = azurerm_subnet.agc.id
+  role_definition_id = local.network_contrib
+  principal_id       = data.azurerm_user_assigned_identity.alb_controller.principal_id
 }
 
 # 3. Network Contributor on the WAF policy resource
 #    Grants the ALB controller the join/action permission it needs to attach
 #    the WAF policy to the AGC security policy via the WebApplicationFirewallPolicy CR.
-resource "azurerm_role_assignment" "alb_waf_policy_network_contributor" {
-  scope                = azurerm_web_application_firewall_policy.waf.id
-  role_definition_name = "Network Contributor"
-  principal_id         = data.azurerm_user_assigned_identity.alb_controller.principal_id
+resource "azurerm_role_assignment" "alb_network_contributor_on_waf" {
+  scope              = azurerm_web_application_firewall_policy.waf.id
+  role_definition_id = local.network_contrib
+  principal_id       = data.azurerm_user_assigned_identity.alb_controller.principal_id
 }
 
 # Azure WAF policy for the Gateway API demo.
@@ -195,7 +199,7 @@ resource "azurerm_web_application_firewall_policy" "waf" {
 
   custom_rules {
     name      = "BlockBadBots"
-    priority  = 1
+    priority  = 2
     rule_type = "MatchRule"
     action    = "Block"
 
@@ -212,7 +216,7 @@ resource "azurerm_web_application_firewall_policy" "waf" {
 
   custom_rules {
     name      = "BlockUriToken"
-    priority  = 2
+    priority  = 3
     rule_type = "MatchRule"
     action    = "Block"
 
@@ -223,6 +227,29 @@ resource "azurerm_web_application_firewall_policy" "waf" {
       operator           = "Contains"
       negation_condition = false
       match_values       = ["blockme"]
+    }
+  }
+
+  # IP allowlist: when allowed_source_ranges is set, block any source IP
+  # NOT in the list. AGC frontends are always public, so this is the
+  # recommended way to restrict access to known networks.
+  # See: https://learn.microsoft.com/azure/application-gateway/for-containers/application-gateway-for-containers-components
+  dynamic "custom_rules" {
+    for_each = length(var.allowed_source_ranges) > 0 ? [1] : []
+    content {
+      name      = "AllowOnlyKnownIPs"
+      priority  = 1
+      rule_type = "MatchRule"
+      action    = "Block"
+
+      match_conditions {
+        match_variables {
+          variable_name = "RemoteAddr"
+        }
+        operator           = "IPMatch"
+        negation_condition = true
+        match_values       = var.allowed_source_ranges
+      }
     }
   }
 }

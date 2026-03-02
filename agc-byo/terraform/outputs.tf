@@ -11,22 +11,23 @@ output "aks_node_resource_group" {
 }
 
 output "alb_name" {
-  value = local.alb_name
+  value = azapi_resource.traffic_controller.name
 }
 
 output "alb_id" {
-  value      = local.alb_id
-  depends_on = [terraform_data.create_byo_agc]
+  value = azapi_resource.traffic_controller.id
 }
 
 output "frontend_name" {
-  value      = local.frontend_name
-  depends_on = [terraform_data.create_byo_agc]
+  value = azapi_resource.frontend.name
+}
+
+output "ingress_frontend_name" {
+  value = azapi_resource.ingress_frontend.name
 }
 
 output "association_id" {
-  value      = local.association_id
-  depends_on = [terraform_data.create_byo_agc]
+  value = azapi_resource.association.id
 }
 
 output "agc_subnet_id" {
