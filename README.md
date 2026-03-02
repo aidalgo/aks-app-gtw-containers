@@ -91,11 +91,40 @@ agc-byo/
 
 ## Prerequisites
 
-- Azure subscription with permissions to create AKS, networking, RBAC assignments, and WAF policies
-- Terraform 1.5+ (or compatible with the providers in `versions.tf`)
-- Azure CLI logged in (`az login`)
-- `kubectl` (optional for local inspection; deployment scripts use `az aks command invoke`)
-- `alb` Azure CLI extension (scripts install it if missing in BYO flow)
+### 1. Azure subscription and CLI
+
+```bash
+# Sign in and select your subscription
+az login
+az account set --subscription <your-subscription-id>
+
+# Register required resource providers
+az provider register --namespace Microsoft.ContainerService
+az provider register --namespace Microsoft.Network
+az provider register --namespace Microsoft.NetworkFunction
+az provider register --namespace Microsoft.ServiceNetworking
+
+# Register required preview features
+az feature register --namespace Microsoft.ContainerService --name ManagedGatewayAPIPreview
+az feature register --namespace Microsoft.ContainerService --name ApplicationLoadBalancerPreview
+
+# Wait for features to register (check with)
+az feature show --namespace Microsoft.ContainerService --name ManagedGatewayAPIPreview --query properties.state -o tsv
+az feature show --namespace Microsoft.ContainerService --name ApplicationLoadBalancerPreview --query properties.state -o tsv
+
+# Propagate the feature registration
+az provider register --namespace Microsoft.ContainerService
+
+# Install Azure CLI extensions
+az extension add --name alb
+az extension add --name aks-preview
+```
+
+### 2. Local tools
+
+- **Terraform ≥ 1.5** (or compatible with the providers in `versions.tf`)
+- **Azure CLI** (`az`) logged in
+- `kubectl` is optional — deployment scripts use `az aks command invoke` against the private cluster
 
 ## Required Azure permissions
 
@@ -106,11 +135,6 @@ The deploying identity (user or service principal) needs the following:
 | **Contributor** | Resource group (or subscription) | Create AKS, VNet, WAF policy, and AGC resources |
 | **Role Based Access Control Administrator** or **User Access Administrator** | Resource group | Terraform creates RBAC role assignments for the ALB controller managed identity |
 | `Microsoft.ServiceNetworking/trafficControllers/*` | Subscription | Required resource provider for Application Gateway for Containers |
-
-> **Tip:** Register the `Microsoft.ServiceNetworking` provider before deploying:
-> ```bash
-> az provider register --namespace Microsoft.ServiceNetworking
-> ```
 
 ## Quick start
 

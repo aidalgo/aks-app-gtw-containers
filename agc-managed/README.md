@@ -70,6 +70,31 @@ agc-managed/
 
 ## Prerequisites
 
+### Azure subscription setup
+
+Before deploying, ensure the required resource providers and preview features are registered:
+
+```bash
+# Register resource providers
+az provider register --namespace Microsoft.ContainerService
+az provider register --namespace Microsoft.Network
+az provider register --namespace Microsoft.NetworkFunction
+az provider register --namespace Microsoft.ServiceNetworking
+
+# Register preview features
+az feature register --namespace Microsoft.ContainerService --name ManagedGatewayAPIPreview
+az feature register --namespace Microsoft.ContainerService --name ApplicationLoadBalancerPreview
+
+# Wait until both features show "Registered", then propagate
+az provider register --namespace Microsoft.ContainerService
+
+# Install Azure CLI extensions
+az extension add --name alb
+az extension add --name aks-preview
+```
+
+### Local tools
+
 - **Azure CLI** (`az`) logged in with a subscription that can create AKS, VNet, WAF, and RBAC assignments
 - **Terraform ≥ 1.6** with providers: `azurerm ≥ 4.0`, `azapi ≥ 1.13`, `random ≥ 3.5`
 - No local `kubectl` needed — scripts use `az aks command invoke` against the private cluster
