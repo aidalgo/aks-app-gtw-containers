@@ -8,7 +8,7 @@ It is intended as a side-by-side migration example from AGC-style ingress defini
 
 ```text
 ┌────────────────────────────────────────────────────────────────┐
-│ Azure Resource Group (rg-nginx-demo-XXXX)                     │
+│ Azure Resource Group (rg-nginx-demo-XXXX)                      │
 │                                                                │
 │  ┌────────────────────────────┐                                │
 │  │ VNet 10.0.0.0/8            │                                │
@@ -23,13 +23,13 @@ It is intended as a side-by-side migration example from AGC-style ingress defini
 │          │  • ingress-nginx controller│                        │
 │          └──────────────┬─────────────┘                        │
 │                         │                                      │
-│          ┌──────────────▼──────────────┐                        │
-│          │ Namespace: test-app-nginx   │                        │
-│          │  • echo-web service         │                        │
-│          │  • echo-api service         │                        │
-│          │  • Ingress (/) and (/api)   │                        │
-│          │  • Optional rewrite ingress │                        │
-│          └─────────────────────────────┘                        │
+│          ┌──────────────▼──────────────┐                       │
+│          │ Namespace: test-app-nginx   │                       │
+│          │  • echo-web service         │                       │
+│          │  • echo-api service         │                       │
+│          │  • Ingress (/) and (/api)   │                       │
+│          │  • Optional rewrite ingress │                       │
+│          └─────────────────────────────┘                       │
 └────────────────────────────────────────────────────────────────┘
 ```
 

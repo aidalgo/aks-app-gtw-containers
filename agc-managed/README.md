@@ -26,7 +26,7 @@ In managed mode the ALB controller running inside AKS owns the full lifecycle of
 │  │  • Azure CNI Overlay │                                       │
 │  │  • Workload Identity │                                       │
 │  │  • ALB controller    │◄── creates AGC resources              │
-│  │    add-on enabled    │    from ApplicationLoadBalancer CR     │
+│  │    add-on enabled    │    from ApplicationLoadBalancer CR    │
 │  │  • Gateway API       │                                       │
 │  │    (Standard)        │                                       │
 │  └──────────────────────┘                                       │

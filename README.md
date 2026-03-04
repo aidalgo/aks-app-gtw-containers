@@ -4,7 +4,7 @@
 
 This repository demonstrates three ways to expose workloads running on a private AKS cluster.
 
-To avoid confusion, AGC has two independent choices:
+AGC has two independent choices:
 
 - **ALB Controller installation mode**: AKS add-on or Helm deployment.
 - **AGC resource ownership mode**: Managed (lifecycle owned from Kubernetes) or BYO (lifecycle owned in Azure).
@@ -47,7 +47,7 @@ The OSS NGINX scenario focuses on ingress migration patterns (`IngressClass`, pa
 │  │                          │     │  Traffic Controller, Frontend│              │
 │  │  ALB controller creates  │     │  & Association pre-created   │              │
 │  │  AGC resources from      │     │  in Azure via Terraform      │              │
-│  │  ApplicationLoadBalancer │     │  azapi_resource (AzAPI)       │              │
+│  │  ApplicationLoadBalancer │     │  azapi_resource (AzAPI)      │              │
 │  │  custom resource         │     │                              │              │
 │  │                          │     │  K8s manifests reference     │              │
 │  │  ┌────────────────────┐  │     │  resources by ARM ID         │              │

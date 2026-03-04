@@ -27,14 +27,14 @@ In BYO mode the AGC traffic controller, frontend, and association are **pre-crea
 │  │  • Workload Identity │   │  ├─ Frontend (frontend-XXXX)    │      │
 │  │  • ALB controller    │   │  └─ Association ──► AGC subnet  │      │
 │  │    add-on enabled    │   │                                 │      │
-│  │  • Gateway API       │   │  Created by Terraform         │      │
-│  │    (Standard)        │   │  azapi_resource               │      │
+│  │  • Gateway API       │   │  Created by Terraform           │      │
+│  │    (Standard)        │   │  azapi_resource                 │      │
 │  └──────────────────────┘   └─────────────────────────────────┘      │
 │                                                                      │
 │  K8s manifests reference BYO resources:                              │
-│   • Gateway annotation: alb.networking.azure.io/alb-id: <ALB ID>    │
+│   • Gateway annotation: alb.networking.azure.io/alb-id: <ALB ID>     │
 │   • Gateway address:    alb.networking.azure.io/alb-frontend         │
-│   • Ingress annotation: alb.networking.azure.io/alb-id: <ALB ID>    │
+│   • Ingress annotation: alb.networking.azure.io/alb-id: <ALB ID>     │
 │   • Ingress annotation: alb.networking.azure.io/alb-frontend         │
 └──────────────────────────────────────────────────────────────────────┘
 ```
