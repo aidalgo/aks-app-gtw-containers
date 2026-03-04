@@ -2,10 +2,17 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-This repository demonstrates three ways to expose workloads running on a private AKS cluster:
+This repository demonstrates three ways to expose workloads running on a private AKS cluster.
 
-- **Add-on managed mode** (`agc-managed/`): AGC resources are created and managed by the controller from Kubernetes custom resources.
-- **BYO mode** (`agc-byo/`): AGC resources are pre-created in Azure, then referenced from Kubernetes manifests.
+To avoid confusion, AGC has two independent choices:
+
+- **ALB Controller installation mode**: AKS add-on or Helm deployment.
+- **AGC resource ownership mode**: Managed (lifecycle owned from Kubernetes) or BYO (lifecycle owned in Azure).
+
+This repository currently demonstrates the **AKS add-on** controller path, with both AGC ownership modes:
+
+- **Managed ownership + AKS add-on controller** (`agc-managed/`): AGC resources are created and managed by the controller from Kubernetes custom resources.
+- **BYO ownership + AKS add-on controller** (`agc-byo/`): AGC resources are pre-created in Azure, then referenced from Kubernetes manifests.
 - **OSS NGINX migration** (`oss-nginx-migration/`): AKS is provisioned with Terraform and ingress is provided by open source `ingress-nginx`.
 
 Both AGC scenarios also include:
@@ -151,7 +158,7 @@ The deploying identity (user or service principal) needs the following:
 
 Choose one scenario.
 
-### Option A: Add-on managed mode
+### Option A: Managed ownership + AKS add-on controller
 
 ```bash
 cd agc-managed/terraform
@@ -166,7 +173,7 @@ cd ..
 
 Detailed guide: [agc-managed/README.md](agc-managed/README.md)
 
-### Option B: BYO mode
+### Option B: BYO ownership + AKS add-on controller
 
 ```bash
 cd agc-byo/terraform
