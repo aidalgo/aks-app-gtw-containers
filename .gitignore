@@ -7,6 +7,9 @@
 # Generated K8s manifests (contain real Azure resource IDs at deploy time)
 **/k8s/.*-generated.yaml
 
+# Generated AGC migration utility output
+**/migration-output/
+
 # Azurite (local emulator artifacts)
 __azurite_db_table__.json
 AzuriteConfig
