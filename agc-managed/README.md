@@ -2,6 +2,8 @@
 
 This scenario demonstrates **AKS add-on managed** Application Gateway for Containers (AGC).
 
+Naming note: **ALB Controller installation** in this scenario is via **AKS add-on**, and **AGC ownership mode** in this scenario is **Managed** (lifecycle owned from Kubernetes resources).
+
 In managed mode the ALB controller running inside AKS owns the full lifecycle of AGC resources. You declare an `ApplicationLoadBalancer` custom resource pointing at a delegated subnet and the controller creates the underlying traffic controller, frontend, and association automatically.
 
 ## Architecture

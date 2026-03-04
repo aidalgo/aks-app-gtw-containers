@@ -40,122 +40,6 @@ It is intended as a side-by-side migration example from AGC-style ingress defini
 - Path-based ingress routing (`/` and `/api`)
 - Optional rewrite ingress example (`/rewrite/<path>`)
 
-## Guided migration to AGC (BYO)
-
-This guided section shows how to use the [Application Gateway for Containers Migration Utility](https://github.com/Azure/Application-Gateway-for-Containers-Migration-Utility) to convert NGINX Ingress manifests into AGC-compatible Gateway API resources.
-
-### Scope
-
-This is a migration-tool walkthrough only.
-
-- It assumes your AKS cluster already has Application Gateway for Containers enabled in **BYO mode**.
-- It focuses on what the migration utility generates from source manifests.
-- For AGC environment setup, use [../agc-byo/README.md](../agc-byo/README.md).
-- You can also reference [../agc-managed/README.md](../agc-managed/README.md).
-
-### What you will migrate
-
-This walkthrough uses:
-
-- [k8s/test-app-ingress.yaml](k8s/test-app-ingress.yaml)
-- [k8s/test-app-ingress-rewrite.yaml](k8s/test-app-ingress-rewrite.yaml)
-
-### Prerequisites for migration utility
-
-1. Existing AGC BYO deployment on AKS.
-2. Azure CLI authenticated to the right subscription.
-3. Migration utility binary available (release or locally built).
-4. AGC resource ID for BYO mode (`--byo-resource-id`), for example:
-
-```text
-/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.ServiceNetworking/trafficControllers/<agc-name>
-```
-
-### Step 1: Get the migration utility
-
-Download a release binary (or build from source):
-
-```bash
-git clone https://github.com/Azure/Application-Gateway-for-Containers-Migration-Utility.git
-cd Application-Gateway-for-Containers-Migration-Utility
-./build.sh
-```
-
-### Step 2: Define required inputs
-
-```bash
-export AGC_ID="/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.ServiceNetworking/trafficControllers/<agc-name>"
-export OUT_DIR="./migration-output"
-```
-
-### Step 3: Run dry-run first (required)
-
-```bash
-agc-migration files \
-    --provider nginx \
-    --ingress-class nginx \
-    --byo-resource-id "$AGC_ID" \
-    --dry-run \
-    ./k8s/test-app-ingress.yaml \
-    ./k8s/test-app-ingress-rewrite.yaml
-```
-
-Review the report for `warning`, `not-supported`, and `error` items before continuing.
-
-### Step 4: Generate converted manifests
-
-```bash
-agc-migration files \
-    --provider nginx \
-    --ingress-class nginx \
-    --byo-resource-id "$AGC_ID" \
-    --output-dir "$OUT_DIR" \
-    ./k8s/test-app-ingress.yaml \
-    ./k8s/test-app-ingress-rewrite.yaml
-```
-
-### Step 5: Review generated output
-
-Typical generated resources include:
-
-- `Gateway`
-- `HTTPRoute`
-- `ReferenceGrant`
-- Policy resources when applicable (`RoutePolicy`, `HealthCheckPolicy`, `WAFPolicy`, etc.)
-
-### Step 6: Apply generated manifests to private AKS
-
-From `terraform/`:
-
-```bash
-RG=$(terraform output -raw resource_group)
-AKS=$(terraform output -raw aks_name)
-```
-
-From this folder:
-
-```bash
-az aks command invoke \
-    --resource-group "$RG" \
-    --name "$AKS" \
-    --command "kubectl apply -f migration-output"
-```
-
-### Step 7: Validate generated AGC resources
-
-```bash
-az aks command invoke \
-    --resource-group "$RG" \
-    --name "$AKS" \
-    --command "kubectl get gateway,httproute -A"
-```
-
-### Common notes
-
-- The migration utility does not modify existing source ingresses.
-- Some NGINX annotations may need manual post-edit.
-- Always review generated YAML before production apply.
-
 ## File reference
 
 ```text
@@ -226,7 +110,130 @@ Expected checks:
 - `GET /api` returns HTTP 200 and `api-ok`
 - `GET /rewrite/hello` returns HTTP 200 via rewrite ingress
 
-## Migration notes (AGC -> NGINX)
+## Guided migration to AGC (BYO)
+
+After your NGINX-based cluster is up and validated, use the migration utility to generate AGC-compatible Gateway API resources.
+
+This guided section shows how to use the [Application Gateway for Containers Migration Utility](https://github.com/Azure/Application-Gateway-for-Containers-Migration-Utility) to convert NGINX Ingress manifests into AGC-compatible Gateway API resources.
+
+Model clarification:
+- **ALB Controller installation** can be AKS add-on or Helm.
+- **AGC ownership mode** can be Managed or BYO.
+- This migration walkthrough targets **BYO ownership**.
+
+### Scope
+
+This is a migration-tool walkthrough only.
+
+- It assumes your AKS cluster already has Application Gateway for Containers enabled in **BYO mode**.
+- It focuses on what the migration utility generates from source manifests.
+- For AGC environment setup, use [../agc-byo/README.md](../agc-byo/README.md).
+- You can also reference [../agc-managed/README.md](../agc-managed/README.md).
+
+### What you will migrate
+
+This walkthrough uses:
+
+- [k8s/test-app-ingress.yaml](k8s/test-app-ingress.yaml)
+- [k8s/test-app-ingress-rewrite.yaml](k8s/test-app-ingress-rewrite.yaml)
+
+### Prerequisites for migration utility
+
+1. Existing AGC BYO deployment on AKS.
+2. Azure CLI authenticated to the right subscription.
+3. Migration utility binary available (release or locally built).
+4. AGC resource ID for BYO mode (`--byo-resource-id`), for example:
+
+```text
+/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.ServiceNetworking/trafficControllers/<agc-name>
+```
+
+### Step 1: Get the migration utility
+
+Download a release binary (or build from source):
+
+```bash
+git clone https://github.com/Azure/Application-Gateway-for-Containers-Migration-Utility.git
+cd Application-Gateway-for-Containers-Migration-Utility
+./build.sh
+```
+
+### Step 2: Define required inputs
+
+```bash
+export AGC_ID="/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.ServiceNetworking/trafficControllers/<agc-name>"
+export OUT_DIR="./migration-output"
+```
+
+### Step 3: Run dry-run first
+
+```bash
+agc-migration files \
+    --provider nginx \
+    --ingress-class nginx \
+    --byo-resource-id "$AGC_ID" \
+    --dry-run \
+    ./k8s/test-app-ingress.yaml \
+    ./k8s/test-app-ingress-rewrite.yaml
+```
+
+Review the report for `warning`, `not-supported`, and `error` items before continuing.
+
+### Step 4: Generate converted manifests
+
+```bash
+agc-migration files \
+    --provider nginx \
+    --ingress-class nginx \
+    --byo-resource-id "$AGC_ID" \
+    --output-dir "$OUT_DIR" \
+    ./k8s/test-app-ingress.yaml \
+    ./k8s/test-app-ingress-rewrite.yaml
+```
+
+### Step 5: Review generated output
+
+Typical generated resources include:
+
+- `Gateway`
+- `HTTPRoute`
+- `ReferenceGrant`
+- Policy resources when applicable (`RoutePolicy`, `HealthCheckPolicy`, `WAFPolicy`, etc.)
+
+### Step 6: Apply generated manifests to AKS
+
+From `terraform/`:
+
+```bash
+RG=$(terraform output -raw resource_group)
+AKS=$(terraform output -raw aks_name)
+```
+
+From this folder:
+
+```bash
+az aks command invoke \
+    --resource-group "$RG" \
+    --name "$AKS" \
+    --command "kubectl apply -f migration-output"
+```
+
+### Step 7: Validate generated AGC resources
+
+```bash
+az aks command invoke \
+    --resource-group "$RG" \
+    --name "$AKS" \
+    --command "kubectl get gateway,httproute -A"
+```
+
+### Common notes
+
+- The migration utility does not modify existing source ingresses.
+- Some NGINX annotations may need manual post-edit.
+- Always review generated YAML before production apply.
+
+## Migration notes (NGINX -> AGC)
 
 - Replace `ingressClassName: azure-alb-external` with `ingressClassName: nginx`
 - Remove AGC annotations such as `alb-name`, `alb-namespace`, `alb-id`, and frontend references

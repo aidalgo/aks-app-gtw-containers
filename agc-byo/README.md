@@ -2,6 +2,8 @@
 
 This scenario demonstrates **Bring Your Own (BYO)** Application Gateway for Containers (AGC).
 
+Naming note: **ALB Controller installation** in this scenario is via **AKS add-on**, and **AGC ownership mode** in this scenario is **BYO** (lifecycle owned in Azure).
+
 In BYO mode the AGC traffic controller, frontend, and association are **pre-created in Azure** using `azapi_resource` (the AzAPI Terraform provider). Kubernetes manifests then reference those existing resources by full ARM resource ID instead of letting the ALB controller create them implicitly.
 
 ## Architecture
