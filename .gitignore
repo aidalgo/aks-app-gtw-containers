@@ -13,3 +13,8 @@ AzuriteConfig
 
 # OS
 .DS_Store
+
+# Local AGC migration utility binaries
+**/agc-migration-*-darwin-*
+**/agc-migration-*-linux-*
+**/agc-migration-*-windows-*

@@ -1,0 +1,9 @@
+location    = "eastus2"
+name_prefix = "nginx-demo"
+
+# Optional overrides:
+# system_node_count    = 1
+# apps_node_count      = 1
+# node_vm_size         = "Standard_D2s_v5"
+# vnet_address_space   = ["10.0.0.0/8"]
+# subnet_address_prefix = "10.240.0.0/16"

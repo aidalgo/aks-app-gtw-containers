@@ -2,16 +2,19 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-This repository demonstrates two ways to expose workloads running on a private AKS cluster by using **Application Gateway for Containers (AGC)** and the Azure ALB controller:
+This repository demonstrates three ways to expose workloads running on a private AKS cluster:
 
 - **Add-on managed mode** (`agc-managed/`): AGC resources are created and managed by the controller from Kubernetes custom resources.
 - **BYO mode** (`agc-byo/`): AGC resources are pre-created in Azure, then referenced from Kubernetes manifests.
+- **OSS NGINX migration** (`oss-nginx-migration/`): AKS is provisioned with Terraform and ingress is provided by open source `ingress-nginx`.
 
-Both scenarios also include:
+Both AGC scenarios also include:
 
 - Gateway API example (`Gateway` + `HTTPRoute`)
 - Kubernetes Ingress example (`Ingress`)
 - Azure WAF policy integration and simple validation tests
+
+The OSS NGINX scenario focuses on ingress migration patterns (`IngressClass`, path routing, and rewrite rules) without AGC-specific resources.
 
 ## Architecture overview
 
@@ -54,6 +57,8 @@ Both scenarios also include:
 
 See [agc-managed/README.md](agc-managed/README.md) and [agc-byo/README.md](agc-byo/README.md) for detailed per-scenario architecture diagrams.
 
+For the NGINX path, see [oss-nginx-migration/README.md](oss-nginx-migration/README.md).
+
 ## What this demo deploys
 
 For each scenario, Terraform provisions:
@@ -87,6 +92,12 @@ agc-byo/
   k8s/         # Gateway + Ingress + WAF CRs (BYO mode)
   deploy.sh    # Applies manifests via az aks command invoke
   test.sh      # cURL checks for allow/block behavior
+
+oss-nginx-migration/
+  terraform/   # AKS infrastructure for OSS NGINX demo
+  k8s/         # Test app + NGINX Ingress manifests
+  deploy.sh    # Installs ingress-nginx and applies manifests
+  test.sh      # cURL checks for path and rewrite behavior
 ```
 
 ## Prerequisites
@@ -131,7 +142,7 @@ az extension add --name aks-preview
 The deploying identity (user or service principal) needs the following:
 
 | Permission / Role | Scope | Reason |
-|---|---|---|
+| --- | --- | --- |
 | **Contributor** | Resource group (or subscription) | Create AKS, VNet, WAF policy, and AGC resources |
 | **Role Based Access Control Administrator** or **User Access Administrator** | Resource group | Terraform creates RBAC role assignments for the ALB controller managed identity |
 | `Microsoft.ServiceNetworking/trafficControllers/*` | Subscription | Required resource provider for Application Gateway for Containers |
@@ -171,6 +182,22 @@ cd ..
 
 Detailed guide: [agc-byo/README.md](agc-byo/README.md)
 
+### Option C: OSS NGINX migration
+
+```bash
+cd oss-nginx-migration/terraform
+cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform validate
+terraform apply
+
+cd ..
+./deploy.sh
+./test.sh
+```
+
+Detailed guide: [oss-nginx-migration/README.md](oss-nginx-migration/README.md)
+
 ## Expected test behavior
 
 Both `test.sh` scripts validate:
@@ -193,6 +220,8 @@ Destroy resources from the scenario you deployed:
 cd agc-managed/terraform && terraform destroy
 # or
 cd agc-byo/terraform && terraform destroy
+# or
+cd oss-nginx-migration/terraform && terraform destroy
 ```
 
 ## License

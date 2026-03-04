@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-ingress-rewrite-all-hosts
+  namespace: test-app-nginx
+spec:
+  parentRefs:
+  - name: alb-gateway
+    sectionName: http
+  rules:
+  - backendRefs:
+    - name: echo-web
+      port: 80
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          replacePrefixMatch: /
+          type: ReplacePrefixMatch
+    matches:
+    - path:
+        type: RegularExpression
+        value: /rewrite
