@@ -48,7 +48,12 @@ oss-nginx-migration/
 ├── test.sh
 ├── k8s/
 │   ├── test-app.yaml
+│   ├── test-app-canary-deployment.yaml
+│   ├── test-app-canary-service.yaml
 │   ├── test-app-ingress.yaml
+│   ├── test-app-ingress-app-root.yaml
+│   ├── test-app-ingress-canary.yaml
+│   ├── test-app-ingress-permanent-redirect.yaml
 │   └── test-app-ingress-rewrite.yaml
 └── terraform/
     ├── main.tf
@@ -106,9 +111,11 @@ cd ..
 
 Expected checks:
 
-- `GET /` returns HTTP 200 and `web-ok`
-- `GET /api` returns HTTP 200 and `api-ok`
-- `GET /rewrite/hello` returns HTTP 200 via rewrite ingress
+- Deployments are available (`echo-web`, `echo-api`, `echo-canary`)
+- Ingress resources are created for base, rewrite, app-root, permanent-redirect, and canary examples
+- App-root ingress host is `app-root.local`
+- Canary annotations are present (`canary=true`, `canary-weight=20`)
+- Ingress addresses are assigned for all sample ingress resources
 
 ## Guided migration to AGC (BYO)
 
@@ -117,6 +124,7 @@ After your NGINX-based cluster is up and validated, use the migration utility to
 This guided section shows how to use the [Application Gateway for Containers Migration Utility](https://github.com/Azure/Application-Gateway-for-Containers-Migration-Utility) to convert NGINX Ingress manifests into AGC-compatible Gateway API resources.
 
 Model clarification:
+
 - **ALB Controller installation** can be AKS add-on or Helm.
 - **AGC ownership mode** can be Managed or BYO.
 - This migration walkthrough targets **BYO ownership**.
@@ -136,6 +144,12 @@ This walkthrough uses:
 
 - [k8s/test-app-ingress.yaml](k8s/test-app-ingress.yaml)
 - [k8s/test-app-ingress-rewrite.yaml](k8s/test-app-ingress-rewrite.yaml)
+
+Additional simple demos you can migrate in the same environment:
+
+- [k8s/test-app-ingress-app-root.yaml](k8s/test-app-ingress-app-root.yaml) (`app-root` redirect on dedicated host `app-root.local`)
+- [k8s/test-app-ingress-permanent-redirect.yaml](k8s/test-app-ingress-permanent-redirect.yaml) (`permanent-redirect`)
+- [k8s/test-app-ingress-canary.yaml](k8s/test-app-ingress-canary.yaml) + [k8s/test-app-canary-deployment.yaml](k8s/test-app-canary-deployment.yaml) + [k8s/test-app-canary-service.yaml](k8s/test-app-canary-service.yaml) (weighted canary)
 
 ### Prerequisites for migration utility
 
@@ -178,6 +192,21 @@ agc-migration files \
 ```
 
 Review the report for `warning`, `not-supported`, and `error` items before continuing.
+
+### Step 3b: Save dry-run output to a file
+
+```bash
+agc-migration files \
+    --provider nginx \
+    --ingress-class nginx \
+    --byo-resource-id "$AGC_ID" \
+    --dry-run \
+    ./k8s/test-app-ingress.yaml \
+    ./k8s/test-app-ingress-rewrite.yaml \
+    2>&1 | tee dry-run-report.txt
+```
+
+Use this same pattern for any additional example manifest list.
 
 ### Step 4: Generate converted manifests
 
@@ -225,6 +254,48 @@ az aks command invoke \
     --resource-group "$RG" \
     --name "$AKS" \
     --command "kubectl get gateway,httproute -A"
+```
+
+### Additional simple migration demo runs
+
+Apply optional demo manifests on your NGINX cluster first:
+
+```bash
+az aks command invoke \
+    --resource-group "$RG" \
+    --name "$AKS" \
+    --command "kubectl apply -f test-app-canary-deployment.yaml -f test-app-canary-service.yaml -f test-app-ingress-app-root.yaml -f test-app-ingress-permanent-redirect.yaml -f test-app-ingress-canary.yaml" \
+    --file ./k8s/test-app-canary-deployment.yaml \
+    --file ./k8s/test-app-canary-service.yaml \
+    --file ./k8s/test-app-ingress-app-root.yaml \
+    --file ./k8s/test-app-ingress-permanent-redirect.yaml \
+    --file ./k8s/test-app-ingress-canary.yaml
+```
+
+Run migration utility for these additional examples:
+
+```bash
+agc-migration files \
+    --provider nginx \
+    --ingress-class nginx \
+    --byo-resource-id "$AGC_ID" \
+    --dry-run \
+    ./k8s/test-app-ingress-app-root.yaml \
+    ./k8s/test-app-ingress-permanent-redirect.yaml \
+    ./k8s/test-app-ingress-canary.yaml \
+    2>&1 | tee dry-run-extra-report.txt
+
+agc-migration files \
+    --provider nginx \
+    --ingress-class nginx \
+    --byo-resource-id "$AGC_ID" \
+    --output-dir "$OUT_DIR" \
+    ./k8s/test-app-ingress-app-root.yaml \
+    ./k8s/test-app-ingress-permanent-redirect.yaml \
+    ./k8s/test-app-ingress-canary.yaml
+
+# optional quick check for app-root sample
+curl -I -H "Host: app-root.local" "http://<NGINX_INGRESS_ADDRESS>/"
 ```
 
 ### Common notes

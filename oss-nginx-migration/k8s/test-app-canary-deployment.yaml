@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-canary
+  namespace: test-app-nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: echo-canary
+  template:
+    metadata:
+      labels:
+        app: echo-canary
+    spec:
+      containers:
+        - name: echo-canary
+          image: hashicorp/http-echo:1.0.0
+          args:
+            - "-text=canary-ok"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          ports:
+            - containerPort: 5678

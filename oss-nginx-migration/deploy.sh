@@ -71,12 +71,26 @@ echo "==> Waiting for test workloads rollout (up to 3 min)..."
 aks_cmd "kubectl -n test-app-nginx rollout status deployment/echo-web --timeout=180s"
 aks_cmd "kubectl -n test-app-nginx rollout status deployment/echo-api --timeout=180s"
 
+echo "==> Deploying optional canary backend workload..."
+aks_apply "$SCRIPT_DIR/k8s/test-app-canary-deployment.yaml"
+aks_apply "$SCRIPT_DIR/k8s/test-app-canary-service.yaml"
+aks_cmd "kubectl -n test-app-nginx rollout status deployment/echo-canary --timeout=180s"
+
 echo ""
 echo "==> Deploying primary path-based ingress..."
 aks_apply "$SCRIPT_DIR/k8s/test-app-ingress.yaml"
 
 echo "==> Deploying optional rewrite ingress..."
 aks_apply "$SCRIPT_DIR/k8s/test-app-ingress-rewrite.yaml"
+
+echo "==> Deploying optional app-root ingress..."
+aks_apply "$SCRIPT_DIR/k8s/test-app-ingress-app-root.yaml"
+
+echo "==> Deploying optional permanent-redirect ingress..."
+aks_apply "$SCRIPT_DIR/k8s/test-app-ingress-permanent-redirect.yaml"
+
+echo "==> Deploying optional canary ingress..."
+aks_apply "$SCRIPT_DIR/k8s/test-app-ingress-canary.yaml"
 
 echo ""
 echo "==> Waiting for NGINX external address (up to 6 min)..."

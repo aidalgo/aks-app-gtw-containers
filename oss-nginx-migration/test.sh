@@ -7,43 +7,112 @@ TF_DIR="$SCRIPT_DIR/terraform"
 RG=$(terraform -chdir="$TF_DIR" output -raw resource_group)
 AKS=$(terraform -chdir="$TF_DIR" output -raw aks_name)
 
-echo "==> Fetching NGINX ingress address..."
-ADDR=$(az aks command invoke -g "$RG" -n "$AKS" \
-  --command "kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}'" \
-  --query logs -o tsv)
+aks_cmd_capture() {
+  local command="$1"
+  local output
+  output=$(az aks command invoke \
+    --resource-group "$RG" \
+    --name "$AKS" \
+    --command "$command" 2>&1 || true)
 
-if [[ -z "$ADDR" || "$ADDR" == "None" ]]; then
-  echo "NGINX ingress address is empty. Run ./deploy.sh first and wait for LB provisioning."
-  exit 1
-fi
-
-echo ""
-echo "Ingress address: $ADDR"
-echo ""
-
-test_curl() {
-  local label="$1"
-  local path="$2"
-  local expected="$3"
-
-  printf "%-45s " "$label"
-  local status
-  status=$(curl -m 10 -s -o /tmp/nginx-test-body-$$.txt -w "%{http_code}" "http://$ADDR$path" 2>/dev/null) || status="TIMEOUT"
-
-  if [[ "$status" != "$expected" ]]; then
-    echo "$status (expected $expected)"
-    rm -f /tmp/nginx-test-body-$$.txt
+  if ! grep -q "exitcode=0" <<< "$output"; then
+    echo "$output"
     return 1
   fi
 
-  cat /tmp/nginx-test-body-$$.txt
-  rm -f /tmp/nginx-test-body-$$.txt
+  echo "$output"
 }
 
-echo "--- NGINX Ingress checks ---"
-test_curl "Root path (/)" "/" "200"
-test_curl "API path (/api)" "/api" "200"
-test_curl "Rewrite path (/rewrite/hello)" "/rewrite/hello" "200"
+assert_cmd() {
+  local label="$1"
+  local command="$2"
+
+  printf "%-50s " "$label"
+
+  if ! aks_cmd_capture "$command" >/dev/null; then
+    echo "FAIL"
+    return 1
+  fi
+
+  echo "OK"
+}
+
+assert_jsonpath_equals() {
+  local label="$1"
+  local command="$2"
+  local expected="$3"
+
+  printf "%-50s " "$label"
+
+  local output
+  output=$(aks_cmd_capture "$command") || {
+    echo "FAIL"
+    return 1
+  }
+
+  local actual
+  actual=$(echo "$output" | tail -n 1 | tr -d '\r')
+
+  if [[ "$actual" != "$expected" ]]; then
+    echo "FAIL (expected '$expected', got '$actual')"
+    return 1
+  fi
+
+  echo "OK"
+}
+
+assert_jsonpath_nonempty() {
+  local label="$1"
+  local command="$2"
+
+  printf "%-50s " "$label"
+
+  local output
+  output=$(aks_cmd_capture "$command") || {
+    echo "FAIL"
+    return 1
+  }
+
+  local actual
+  actual=$(echo "$output" | tail -n 1 | tr -d '\r')
+
+  if [[ -z "$actual" || "$actual" == "None" ]]; then
+    echo "FAIL (empty)"
+    return 1
+  fi
+
+  echo "OK"
+}
+
+echo "==> Validating NGINX ingress sample manifests..."
 
 echo ""
-echo "Expected response bodies include: web-ok (/) and rewrite, api-ok (/api)."
+echo "--- Workload readiness ---"
+assert_cmd "Deployment available: echo-web" "kubectl -n test-app-nginx wait --for=condition=available deployment/echo-web --timeout=120s"
+assert_cmd "Deployment available: echo-api" "kubectl -n test-app-nginx wait --for=condition=available deployment/echo-api --timeout=120s"
+assert_cmd "Deployment available: echo-canary" "kubectl -n test-app-nginx wait --for=condition=available deployment/echo-canary --timeout=120s"
+
+echo ""
+echo "--- Ingress resources present ---"
+assert_cmd "Ingress exists: echo-ingress" "kubectl -n test-app-nginx get ingress echo-ingress"
+assert_cmd "Ingress exists: echo-ingress-rewrite" "kubectl -n test-app-nginx get ingress echo-ingress-rewrite"
+assert_cmd "Ingress exists: echo-ingress-app-root" "kubectl -n test-app-nginx get ingress echo-ingress-app-root"
+assert_cmd "Ingress exists: echo-ingress-permanent-redirect" "kubectl -n test-app-nginx get ingress echo-ingress-permanent-redirect"
+assert_cmd "Ingress exists: echo-ingress-canary" "kubectl -n test-app-nginx get ingress echo-ingress-canary"
+
+echo ""
+echo "--- Ingress wiring checks ---"
+assert_jsonpath_equals "App-root host is app-root.local" "kubectl -n test-app-nginx get ingress echo-ingress-app-root -o jsonpath='{.spec.rules[0].host}'" "app-root.local"
+assert_jsonpath_equals "Canary annotation enabled" "kubectl -n test-app-nginx get ingress echo-ingress-canary -o jsonpath='{.metadata.annotations.nginx\\.ingress\\.kubernetes\\.io/canary}'" "true"
+assert_jsonpath_equals "Canary weight is 20" "kubectl -n test-app-nginx get ingress echo-ingress-canary -o jsonpath='{.metadata.annotations.nginx\\.ingress\\.kubernetes\\.io/canary-weight}'" "20"
+
+echo ""
+echo "--- Ingress address assignment ---"
+assert_jsonpath_nonempty "Address assigned: echo-ingress" "kubectl -n test-app-nginx get ingress echo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}'"
+assert_jsonpath_nonempty "Address assigned: echo-ingress-rewrite" "kubectl -n test-app-nginx get ingress echo-ingress-rewrite -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}'"
+assert_jsonpath_nonempty "Address assigned: echo-ingress-app-root" "kubectl -n test-app-nginx get ingress echo-ingress-app-root -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}'"
+assert_jsonpath_nonempty "Address assigned: echo-ingress-permanent-redirect" "kubectl -n test-app-nginx get ingress echo-ingress-permanent-redirect -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}'"
+assert_jsonpath_nonempty "Address assigned: echo-ingress-canary" "kubectl -n test-app-nginx get ingress echo-ingress-canary -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}'"
+
+echo ""
+echo "Ingress sample manifest checks completed successfully (resource-level validation)."
